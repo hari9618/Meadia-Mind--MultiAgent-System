@@ -1,0 +1,29 @@
+# .gitignore
+# Files that should NEVER be pushed to GitHub
+
+# Environment variables (contains API keys!)
+.env
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment folder
+venv/
+env/
+.venv/
+
+# ChromaDB data folder (if using persistent client)
+chroma_store/
+
+# Streamlit cache
+.streamlit/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
