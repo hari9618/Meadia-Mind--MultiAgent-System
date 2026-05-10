@@ -22,6 +22,7 @@
   <img src="https://img.shields.io/badge/ChromaDB-Vector%20Store-darkgreen"/>
   <img src="https://img.shields.io/badge/BM25-Hybrid%20RAG-purple"/>
   <img src="https://img.shields.io/badge/Render-Deployed-brightgreen"/>
+  <img src="https://img.shields.io/badge/QA-Direct%20Q%26A%20Agent-blue"/>
 </p>
 
 ---
@@ -30,8 +31,8 @@
 
 👉 **Try the App Here**
 
-🔗 https://meadia-mind-multiagent-system.onrender.com
-
+🔗 **Frontend (Streamlit):**
+[https://mediamind-ai.onrender.com/](https://mediamind-ai.onrender.com/)
 
 ---
 
@@ -55,6 +56,7 @@ It combines **Groq's ultra-fast inference** with **Hybrid RAG** (ChromaDB + BM25
 | 🔍 **Hybrid RAG** | ChromaDB vector search (60%) + BM25 keyword search (40%) merged |
 | 🔧 **MCP Tool Registry** | Wikipedia, DuckDuckGo, YouTube Transcript, File Reader — per-agent access control |
 | 💬 **Multi-Session Chat** | Full session history, auto-titles, session switching, export to markdown |
+| 💬 **Direct Q&A Mode** | Ask any question — Q&A Agent answers concisely, no structured reports |
 | 🚀 **Deployed on Render** | Persistent ChromaDB storage — data survives server restarts |
 
 ---
@@ -102,30 +104,41 @@ MediaMind
 User Query
     │
     ▼
-┌─────────────────────┐
-│   Supervisor Node   │  ← Reads query, decides routing (temp=0.0)
-└─────────┬───────────┘
-          │
-    ┌─────┴──────┐──────────────┐
-    ▼            ▼              ▼
-┌────────┐  ┌──────────┐  ┌─────────┐
-│Summarize│  │Highlight │  │ Social  │
-│ Agent  │  │  Agent   │  │  Agent  │
-└────┬───┘  └────┬─────┘  └────┬────┘
-     │           │             │
-     ▼           ▼             ▼
-  Wikipedia   Wikipedia    Web Search
-  Web Search  Web Search   (only)
-     │           │             │
-     ▼           ▼             ▼
-  Groq 0.3   Groq 0.0      Groq 0.75
-  (balanced) (precise)    (creative)
-     │           │             │
-     └───────────┴─────────────┘
-                 │
-                 ▼
-         Final Response → Chat UI
+┌─────────────────────────────────────────────────────┐
+│                   Supervisor Node                    │
+│          Reads query, decides routing (temp=0.0)     │
+└──────┬──────────┬──────────────┬────────────────────┘
+       │          │              │                │
+       ▼          ▼              ▼                ▼
+┌──────────┐ ┌──────────┐ ┌──────────┐  ┌─────────────┐
+│Summarize │ │Highlight │ │  Social  │  │   Q&A Agent │
+│  Agent   │ │  Agent   │ │  Agent   │  │  (NEW ✨)   │
+└────┬─────┘ └────┬─────┘ └────┬─────┘  └──────┬──────┘
+     │            │            │               │
+     ▼            ▼            ▼               ▼
+ Wikipedia    Wikipedia    Web Search      Wikipedia
+ Web Search   Web Search    (only)        Web Search
+     │            │            │               │
+     ▼            ▼            ▼               ▼
+  Groq 0.3    Groq 0.0     Groq 0.75       Groq 0.3
+  (balanced)  (precise)   (creative)      (balanced)
+     │            │            │               │
+     └────────────┴────────────┴───────────────┘
+                              │
+                              ▼
+                    Final Response → Chat UI
 ```
+
+### 🤖 Agent Routing Logic
+
+| Query type | Example | Routes to |
+|---|---|---|
+| Wants a summary / overview | "summarize this video" | `summarize_agent` |
+| Wants highlights / key moments | "what are the key points?" | `highlight_agent` |
+| Wants social media content | "write a LinkedIn post" | `social_agent` |
+| Asks a direct question | "what does X mean?" / "who is Y?" | `qa_agent` ✨ |
+
+> **How the supervisor decides:** If the query contains question words — *what, why, how, who, when, explain, define* — it always routes to `qa_agent`. The Q&A Agent answers in 2–5 sentences, grounded in the transcript, with no structured reports or bullet points.
 
 ---
 
@@ -170,7 +183,8 @@ Top-4 chunks (60% weight)      Top-4 chunks (40% weight)
 ### 1️⃣ Clone Repository
 
 ```bash
-https://github.com/hari9618/Meadia-Mind--MultiAgent-System
+git clone https://github.com/hari9618/mediamind
+cd mediamind
 ```
 
 ### 2️⃣ Create Virtual Environment
@@ -214,7 +228,8 @@ streamlit run app.py
         │
 3️⃣  Hybrid RAG retrieval → ChromaDB semantic + BM25 keyword → Top-4 chunks
         │
-4️⃣  Supervisor reads query → Routes to Summarize / Highlight / Social agent
+4️⃣  Supervisor reads query → Routes to Summarize / Highlight / Social / Q&A agent
+        │        (question words detected? → qa_agent for direct concise answer)
         │
 5️⃣  Agent calls MCP tools (Wikipedia, DuckDuckGo) for real-world enrichment
         │
@@ -227,11 +242,11 @@ streamlit run app.py
 
 ## 📷 Application Preview
 
-> <img width="951" height="446" alt="Screenshot 2026-05-09 170729" src="https://github.com/user-attachments/assets/9a5dcc44-1cbd-4aa9-b244-11e84ec969cf" />
-
+> *(Add your screenshot here)*
 
 ```
-<img width="953" alt="MediaMind Screenshot" src="YOUR_SCREENSHOT_URL" />
+<img width="951" height="446" alt="Screenshot 2026-05-09 170729" src="https://github.com/user-attachments/assets/978fbee0-d71f-4b39-9519-98e0de61ecab" />
+
 ```
 
 ---
@@ -245,12 +260,14 @@ streamlit run app.py
 ✔ **Production RAG Deployment** — PersistentClient ChromaDB, real-time re-indexing  
 ✔ **LLM Temperature Strategy** — precise / balanced / creative modes for different task types  
 ✔ **YouTube API Integration** — youtube-transcript-api v1.x, URL parsing, live ingestion  
+✔ **Intelligent Task Routing** — keyword-based intent detection to separate Q&A from generation tasks  
 
 ---
 
 ## 🎯 Future Improvements
 
 🔹 Speaker diarization — identify who said what in transcripts  
+🔹 Multi-turn Q&A — follow-up questions that remember previous answers in session  
 🔹 Multi-document RAG — index multiple videos/files simultaneously  
 🔹 Audio file support — direct .mp3/.wav upload with Whisper transcription  
 🔹 Scheduled indexing — auto-index new episodes from RSS feeds  
