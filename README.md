@@ -1,0 +1,283 @@
+# 🎙️ MediaMind — Autonomous Media Intelligence Platform
+
+<p align="center">
+  <img src="https://media.giphy.com/media/3oKIPEqDGUULpEU0aQ/giphy.gif" width="700" />
+</p>
+
+<p align="center">
+  ⚡ Multi-Agent AI that turns any podcast, video or transcript into summaries, highlights & social content
+</p>
+
+---
+
+## 🧩 Tech Badges
+
+<p align="center">
+  <img src="https://img.shields.io/badge/AI-Multi--Agent-blueviolet"/>
+  <img src="https://img.shields.io/badge/LLM-Groq%20Llama%203.3%2070B-orange"/>
+  <img src="https://img.shields.io/badge/Python-3.10+-blue"/>
+  <img src="https://img.shields.io/badge/Streamlit-Frontend-red"/>
+  <img src="https://img.shields.io/badge/LangGraph-Agent%20Orchestration-green"/>
+  <img src="https://img.shields.io/badge/LangChain-Framework-yellow"/>
+  <img src="https://img.shields.io/badge/ChromaDB-Vector%20Store-darkgreen"/>
+  <img src="https://img.shields.io/badge/BM25-Hybrid%20RAG-purple"/>
+  <img src="https://img.shields.io/badge/Render-Deployed-brightgreen"/>
+</p>
+
+---
+
+## 🚀 Live Demo
+
+👉 **Try the App Here**
+
+🔗 https://meadia-mind-multiagent-system.onrender.com
+
+
+---
+
+## 📌 Project Overview
+
+**MediaMind** is a production-grade **Autonomous Media Intelligence Platform** powered by a multi-agent AI pipeline.
+
+Instead of a single LLM call, it routes every user request through a **Supervisor → Specialist** agent system — intelligently deciding whether to summarize, extract highlights, or generate social content.
+
+It combines **Groq's ultra-fast inference** with **Hybrid RAG** (ChromaDB + BM25), **MCP-style tool calling**, and **real-time YouTube transcript ingestion** — all behind a clean, session-aware Streamlit chat UI.
+
+---
+
+## ✨ Key Features
+
+| Feature | Description |
+|---|---|
+| ⚡ **Ultra-Fast Inference** | Groq LPU running Llama 3.3 70B — sub-2s responses |
+| 🧠 **Multi-Agent Pipeline** | Supervisor routes to Summarize / Highlight / Social agent |
+| 📺 **YouTube Ingestion** | Paste any YouTube URL — transcript fetched, indexed, answered |
+| 🔍 **Hybrid RAG** | ChromaDB vector search (60%) + BM25 keyword search (40%) merged |
+| 🔧 **MCP Tool Registry** | Wikipedia, DuckDuckGo, YouTube Transcript, File Reader — per-agent access control |
+| 💬 **Multi-Session Chat** | Full session history, auto-titles, session switching, export to markdown |
+| 🚀 **Deployed on Render** | Persistent ChromaDB storage — data survives server restarts |
+
+---
+
+## 🛠️ Tech Stack
+
+| Technology | Purpose |
+|---|---|
+| 🐍 Python | Core programming |
+| ⚡ Groq API | Fast LLM inference (Llama 3.3 70B) |
+| 🧠 LangGraph | Agent orchestration (StateGraph) |
+| 🔗 LangChain | LLM integration + tool binding |
+| 🎨 Streamlit | Frontend UI + multi-session chat |
+| 📦 ChromaDB | Vector store (persistent) |
+| 📊 BM25 (rank_bm25) | Keyword search for hybrid RAG |
+| 🤗 all-MiniLM-L6-v2 | Local embeddings — zero API cost |
+| 🌐 DuckDuckGo DDGS | Live web search tool |
+| 📖 Wikipedia API | Factual enrichment tool |
+| 🚀 Render | Cloud deployment |
+
+---
+
+## 🏗️ System Architecture
+
+```
+MediaMind
+│
+├── app.py              # Streamlit UI — multi-session chat, source management
+├── agent.py            # LangGraph multi-agent pipeline
+├── rag.py              # Hybrid RAG (ChromaDB + BM25)
+├── mcp_tools.py        # MCP tool registry (4 tools, per-agent access control)
+├── llm.py              # Groq LLM client (3 temperature modes)
+├── prompts.py          # All LLM prompts — clean separation of concerns
+├── config.py           # Central config — models, RAG params, retry settings
+├── requirements.txt
+├── .env                # API keys (NOT pushed to GitHub)
+└── README.md
+```
+
+---
+
+## 🤖 Agent Pipeline
+
+```
+User Query
+    │
+    ▼
+┌─────────────────────┐
+│   Supervisor Node   │  ← Reads query, decides routing (temp=0.0)
+└─────────┬───────────┘
+          │
+    ┌─────┴──────┐──────────────┐
+    ▼            ▼              ▼
+┌────────┐  ┌──────────┐  ┌─────────┐
+│Summarize│  │Highlight │  │ Social  │
+│ Agent  │  │  Agent   │  │  Agent  │
+└────┬───┘  └────┬─────┘  └────┬────┘
+     │           │             │
+     ▼           ▼             ▼
+  Wikipedia   Wikipedia    Web Search
+  Web Search  Web Search   (only)
+     │           │             │
+     ▼           ▼             ▼
+  Groq 0.3   Groq 0.0      Groq 0.75
+  (balanced) (precise)    (creative)
+     │           │             │
+     └───────────┴─────────────┘
+                 │
+                 ▼
+         Final Response → Chat UI
+```
+
+---
+
+## 🔍 Hybrid RAG Pipeline
+
+```
+User Query
+    │
+    ├──────────────────────────────┐
+    ▼                              ▼
+ChromaDB Vector Search         BM25 Keyword Search
+(semantic similarity)          (exact term matching)
+all-MiniLM-L6-v2 embeddings    rank_bm25 BM25Okapi
+Top-4 chunks (60% weight)      Top-4 chunks (40% weight)
+    │                              │
+    └──────────┬───────────────────┘
+               ▼
+       Merge + Deduplicate
+    (vector results get priority)
+               │
+               ▼
+       Top-4 chunks → context string → Agent
+```
+
+---
+
+## 🔧 MCP Tool Registry
+
+| Tool | Description | Agent Access |
+|---|---|---|
+| `youtube_transcript` | Fetches full transcript from YouTube URL | Research agent |
+| `web_search` | Live DuckDuckGo search for news & trends | All agents |
+| `wikipedia_search` | Factual background on people & topics | Summarize, Highlight |
+| `read_file` | Reads local .txt / .srt / .md transcript | Research agent |
+
+> Each agent gets **only the tools it needs** — social agent gets web search only, summarize and highlight agents get Wikipedia + web search. This is deliberate architecture, not default behaviour.
+
+---
+
+## ⚙️ Installation Guide
+
+### 1️⃣ Clone Repository
+
+```bash
+https://github.com/hari9618/Meadia-Mind--MultiAgent-System
+```
+
+### 2️⃣ Create Virtual Environment
+
+```bash
+python -m venv venv
+source venv/bin/activate   # Mac/Linux
+venv\Scripts\activate      # Windows
+```
+
+### 3️⃣ Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4️⃣ Setup Environment Variables
+
+Create a `.env` file:
+
+```env
+GROQ_API_KEY=your_groq_api_key_here
+```
+
+Get your free Groq API key at [console.groq.com](https://console.groq.com)
+
+### 5️⃣ Run the App
+
+```bash
+streamlit run app.py
+```
+
+---
+
+## 🧠 How It Works
+
+```
+1️⃣  User sends a query (or pastes a YouTube URL)
+        │
+2️⃣  YouTube URL detected? → Fetch transcript → Clear ChromaDB → Re-index
+        │
+3️⃣  Hybrid RAG retrieval → ChromaDB semantic + BM25 keyword → Top-4 chunks
+        │
+4️⃣  Supervisor reads query → Routes to Summarize / Highlight / Social agent
+        │
+5️⃣  Agent calls MCP tools (Wikipedia, DuckDuckGo) for real-world enrichment
+        │
+6️⃣  Agent formats prompt: RAG context + tool results + user query → Groq LLM
+        │
+7️⃣  Response rendered in chat — markdown or styled highlight cards
+```
+
+---
+
+## 📷 Application Preview
+
+> <img width="951" height="446" alt="Screenshot 2026-05-09 170729" src="https://github.com/user-attachments/assets/9a5dcc44-1cbd-4aa9-b244-11e84ec969cf" />
+
+
+```
+<img width="953" alt="MediaMind Screenshot" src="YOUR_SCREENSHOT_URL" />
+```
+
+---
+
+## 📚 What I Learned
+
+✔ **LangGraph StateGraph** — building real state machines with typed state and conditional edges  
+✔ **Hybrid RAG Engineering** — combining vector + keyword search with weighted merging  
+✔ **MCP Tool Architecture** — per-agent access control, tool binding, ToolMessage conversations  
+✔ **Multi-Session State Management** — Streamlit session_state design for complex apps  
+✔ **Production RAG Deployment** — PersistentClient ChromaDB, real-time re-indexing  
+✔ **LLM Temperature Strategy** — precise / balanced / creative modes for different task types  
+✔ **YouTube API Integration** — youtube-transcript-api v1.x, URL parsing, live ingestion  
+
+---
+
+## 🎯 Future Improvements
+
+🔹 Speaker diarization — identify who said what in transcripts  
+🔹 Multi-document RAG — index multiple videos/files simultaneously  
+🔹 Audio file support — direct .mp3/.wav upload with Whisper transcription  
+🔹 Scheduled indexing — auto-index new episodes from RSS feeds  
+🔹 Shareable sessions — export and share full conversation threads  
+
+---
+
+## 👨‍💻 Author
+
+**Hari Krishna T**  
+AI Engineer | Multi-Agent Systems Builder | Gen AI Developer
+
+🔗 GitHub: [github.com/hari9618](https://github.com/hari9618)  
+🔗 LinkedIn: [linkedin.com/in/hari-krishna-thota-06b850275](https://linkedin.com/in/hari-krishna-thota-06b850275)
+
+---
+
+## ⭐ Support
+
+If you like this project:
+
+⭐ **Star the repository**  
+📢 **Share with others**  
+🍴 **Fork and build on top of it**
+
+---
+
+## 📢 Tags
+
+`AI` `Multi-Agent` `LangGraph` `LangChain` `Groq` `RAG` `ChromaDB` `BM25` `Streamlit` `YouTube` `MCP` `Python` `Generative AI` `LLM` `Render`
