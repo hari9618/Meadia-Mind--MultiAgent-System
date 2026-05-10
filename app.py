@@ -470,6 +470,7 @@ with main:
                     amap = {"summarize_agent":("📝","Summarize Agent"),
                             "highlight_agent":("⭐","Highlight Agent"),
                             "social_agent":("📱","Social Agent"),
+                            "qa_agent":("💬","Q&A Agent"),
                             "error":("❌","Error")}
                     ico2, nm = amap.get(task, ("🤖","MediaMind"))
                     st.markdown(f'<div class="agent-tag">{ico2} {nm}</div>', unsafe_allow_html=True)

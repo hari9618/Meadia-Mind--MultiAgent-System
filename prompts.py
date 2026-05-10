@@ -119,22 +119,55 @@ Write content for each platform:
 <#tag1 #tag2 #tag3 #tag4 #tag5 #tag6 #tag7 #tag8 #tag9 #tag10>
 """
 
+
+# ── Direct Q&A ────────────────────────────────────────────────────────
+
+QA_SYSTEM = """
+You are a knowledgeable assistant answering questions directly from
+media content. Give clear, concise, accurate answers grounded in the
+transcript. Do NOT produce summaries or structured reports — just
+answer the question naturally like a human expert would.
+"""
+
+QA_PROMPT = """
+Answer the user's question based on the transcript content below.
+
+TRANSCRIPT CONTEXT:
+{context}
+
+LIVE RESEARCH DATA:
+{tool_results}
+
+QUESTION: {task}
+
+Instructions:
+- Answer directly and concisely — 2 to 5 sentences max
+- Ground your answer in the transcript content
+- If the transcript doesn't cover it, say so honestly
+- Do NOT produce bullet points, overviews, or summaries
+- Sound like a human expert, not a report generator
+"""
+
 # ── Task Router ───────────────────────────────────────────────────────
 # Used by the supervisor to decide which agent should handle a query.
 
 ROUTER_SYSTEM = """
 You are a task router for a media intelligence platform.
 Given a user query, output ONLY one of these exact strings — nothing else:
-summarize_agent | highlight_agent | social_agent
+summarize_agent | highlight_agent | social_agent | qa_agent
 """
 
 ROUTER_PROMPT = """
 Query: {query}
 
-Which agent should handle this?
-- summarize_agent  → summaries, overviews, recaps, briefs
-- highlight_agent  → highlights, key points, clips, extractions
-- social_agent     → social media, posts, captions, hashtags
+Which agent should handle this? Choose exactly one:
+
+- summarize_agent  → user wants a summary, overview, recap, brief, or general understanding of the content
+- highlight_agent  → user wants highlights, key points, best moments, clips, or extractions
+- social_agent     → user wants social media posts, captions, tweets, LinkedIn posts, or hashtags
+- qa_agent         → user is asking a SPECIFIC QUESTION about the content (what, why, how, who, when, explain, define, tell me about, what does X mean)
+
+IMPORTANT: If the query is a direct question (contains words like "what", "why", "how", "who", "when", "explain", "define", "what does", "what is", "tell me"), always choose qa_agent.
 
 Output only the agent name:
 """

@@ -32,6 +32,7 @@ from prompts import (
     SUMMARIZE_SYSTEM, SUMMARIZE_PROMPT,
     HIGHLIGHT_SYSTEM, HIGHLIGHT_PROMPT,
     SOCIAL_SYSTEM, SOCIAL_PROMPT,
+    QA_SYSTEM, QA_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ def supervisor_node(state: AgentState) -> AgentState:
         decision = call_llm(prompt, system=ROUTER_SYSTEM, mode="precise").strip().lower()
 
         # Validate the decision — fall back to summarize if unexpected
-        valid_agents = {"summarize_agent", "highlight_agent", "social_agent"}
+        valid_agents = {"summarize_agent", "highlight_agent", "social_agent", "qa_agent"}
         if decision not in valid_agents:
             logger.warning(f"[SUPERVISOR] Unexpected routing '{decision}', defaulting to summarize_agent")
             decision = "summarize_agent"
@@ -275,6 +276,37 @@ def social_agent_node(state: AgentState) -> AgentState:
     }
 
 
+
+def qa_agent_node(state: AgentState) -> AgentState:
+    """
+    Handles direct Q&A questions about the transcript content.
+    Gives a concise, direct answer — no structured reports or summaries.
+    """
+    logger.info("[AGENT] qa_agent running...")
+
+    # Call tools for enrichment (wikipedia + web search)
+    tool_results_text, tool_calls_log = run_tool_calling(state, "summarize_agent")
+
+    # Build prompt and call LLM
+    prompt = QA_PROMPT.format(
+        context=state["context"],
+        tool_results=tool_results_text,
+        task=state["query"],
+    )
+    output = call_llm(prompt, system=QA_SYSTEM, mode="balanced")
+
+    return {
+        **state,
+        "tool_results": tool_results_text,
+        "tool_calls":   tool_calls_log,
+        "output": {
+            "task":    "qa_agent",
+            "content": output,
+        },
+        "next_agent": "__end__",
+    }
+
+
 # ── LangGraph Workflow Builder ────────────────────────────────────────
 
 def _build_graph():
@@ -295,6 +327,7 @@ def _build_graph():
         graph.add_node("summarize_agent", summarize_agent_node)
         graph.add_node("highlight_agent", highlight_agent_node)
         graph.add_node("social_agent",    social_agent_node)
+        graph.add_node("qa_agent",        qa_agent_node)
 
         # Entry point: always start at supervisor
         graph.set_entry_point("supervisor")
@@ -307,6 +340,7 @@ def _build_graph():
                 "summarize_agent": "summarize_agent",
                 "highlight_agent": "highlight_agent",
                 "social_agent":    "social_agent",
+                "qa_agent":        "qa_agent",
             }
         )
 
@@ -314,6 +348,7 @@ def _build_graph():
         graph.add_edge("summarize_agent", END)
         graph.add_edge("highlight_agent", END)
         graph.add_edge("social_agent",    END)
+        graph.add_edge("qa_agent",        END)
 
         return graph.compile()
 
@@ -379,6 +414,8 @@ def run_agent(query: str, context: str, num_chunks: int) -> dict:
         final_state = highlight_agent_node(routed_state)
     elif next_agent == "social_agent":
         final_state = social_agent_node(routed_state)
+    elif next_agent == "qa_agent":
+        final_state = qa_agent_node(routed_state)
     else:
         final_state = summarize_agent_node(routed_state)
 
