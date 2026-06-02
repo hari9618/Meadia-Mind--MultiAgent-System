@@ -1,0 +1,77 @@
+# docker-compose.yml
+# ─────────────────────────────────────────────────────────────────────
+# Changes vs v1:
+#   ✦ LANGFUSE_BASE_URL (was LANGFUSE_HOST — wrong in v1, fixed here)
+#   ✦ EVAL_* env vars exposed for evaluation toggle + thresholds
+#   ✦ eval_data volume for JSONL dataset collection
+#   ✦ start_period bumped to 90s (RAGAS + model load takes longer)
+#   ✦ HF_HUB_OFFLINE=1 to prevent runtime model downloads
+# ─────────────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+services:
+  mediamind:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: mediamind:latest
+    container_name: mediamind_app
+    ports:
+      - "8501:8501"
+    environment:
+      # ── Required ────────────────────────────────────────────────────
+      - GROQ_API_KEY=${GROQ_API_KEY}
+
+      # ── Langfuse v4 (LANGFUSE_BASE_URL — NOT LANGFUSE_HOST) ─────────
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+
+      # ── RAGAS Evaluation ─────────────────────────────────────────────
+      # Set EVAL_ENABLED=false to disable on free-tier / low-memory hosts
+      - EVAL_ENABLED=${EVAL_ENABLED:-true}
+      - EVAL_LOG_TO_LANGFUSE=${EVAL_LOG_TO_LANGFUSE:-true}
+
+      # Metric thresholds — scores below these fire WARNING logs + Langfuse alerts
+      - EVAL_THRESH_FAITHFULNESS=${EVAL_THRESH_FAITHFULNESS:-0.70}
+      - EVAL_THRESH_PRECISION=${EVAL_THRESH_PRECISION:-0.60}
+      - EVAL_THRESH_RELEVANCY=${EVAL_THRESH_RELEVANCY:-0.65}
+      - EVAL_THRESH_HALLUCINATION=${EVAL_THRESH_HALLUCINATION:-0.30}
+
+      # Dataset collection (set true to save Q/A/context samples for offline eval)
+      - EVAL_COLLECT_DATASET=${EVAL_COLLECT_DATASET:-false}
+      - EVAL_DATASET_PATH=/app/eval_data/eval_dataset.jsonl
+
+      # ── HuggingFace offline mode ──────────────────────────────────────
+      # Models are pre-baked into the Docker image — no runtime downloads
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+
+      # ── App config ───────────────────────────────────────────────────
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+
+    volumes:
+      # ChromaDB persistent storage — survives container restarts
+      - chroma_data:/app/chroma_store
+      # Evaluation dataset JSONL output (only used if EVAL_COLLECT_DATASET=true)
+      - eval_data:/app/eval_data
+
+    restart: unless-stopped
+
+    # start_period bumped to 90s:
+    # RAGAS lazy-imports transformers on first call which takes ~30s cold
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  chroma_data:
+    driver: local
+  eval_data:
+    driver: local

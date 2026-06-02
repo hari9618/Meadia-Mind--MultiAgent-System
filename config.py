@@ -45,3 +45,31 @@ CHUNK_SIZE       = 400   # characters per chunk
 CHUNK_OVERLAP    = 80    # overlap between chunks (prevents context cutoff)
 BM25_WEIGHT      = 0.4   # weight for keyword search in hybrid retrieval
 VECTOR_WEIGHT    = 0.6   # weight for semantic search in hybrid retrieval
+
+# ── RAGAS Evaluation configuration ───────────────────────────────────
+# Toggle evaluation on/off without code changes.
+# Set EVAL_ENABLED=false in .env to disable in resource-constrained envs.
+EVAL_ENABLED = os.getenv("EVAL_ENABLED", "true").lower() == "true"
+
+# Metric thresholds — scores below these trigger WARNING logs and
+# Langfuse alerts. Tune based on your quality requirements.
+#
+#   Faithfulness    : < 0.70 → hallucination risk (LLM not using context)
+#   Context Precision: < 0.60 → retrieval noise (chunks not relevant)
+#   Answer Relevancy : < 0.65 → off-topic answers (router misfire?)
+#   Context Recall   : < 0.60 → retrieval gaps (missing key info)
+#   Hallucination    : > 0.30 → high fabrication risk
+EVAL_THRESH_FAITHFULNESS  = float(os.getenv("EVAL_THRESH_FAITHFULNESS",  "0.70"))
+EVAL_THRESH_PRECISION     = float(os.getenv("EVAL_THRESH_PRECISION",     "0.60"))
+EVAL_THRESH_RELEVANCY     = float(os.getenv("EVAL_THRESH_RELEVANCY",     "0.65"))
+EVAL_THRESH_RECALL        = float(os.getenv("EVAL_THRESH_RECALL",        "0.60"))
+EVAL_THRESH_HALLUCINATION = float(os.getenv("EVAL_THRESH_HALLUCINATION", "0.30"))
+
+# Langfuse evaluation toggle — set false to skip score posting even
+# if evaluation runs (useful for local testing without Langfuse keys)
+EVAL_LOG_TO_LANGFUSE = os.getenv("EVAL_LOG_TO_LANGFUSE", "true").lower() == "true"
+
+# Dataset collection — set true to save every production Q/A/context
+# to a JSONL file for offline regression testing
+EVAL_COLLECT_DATASET = os.getenv("EVAL_COLLECT_DATASET", "false").lower() == "true"
+EVAL_DATASET_PATH    = os.getenv("EVAL_DATASET_PATH", "eval_dataset.jsonl")

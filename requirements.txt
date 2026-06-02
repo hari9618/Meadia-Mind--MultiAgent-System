@@ -1,22 +1,71 @@
+# requirements.txt  (PRODUCTION — with RAGAS evaluation)
+# ─────────────────────────────────────────────────────────────────────
+# Core LangChain / LangGraph stack
+# ─────────────────────────────────────────────────────────────────────
 langchain>=0.2.0
-langchain-google-genai>=1.0.6
+langchain-groq>=0.1.6
 langchain-community>=0.2.0
 langchain-core>=0.2.0
 langchain-text-splitters>=0.2.0
+langgraph>=0.1.0
 
-google-generativeai>=0.7.0
+# ─────────────────────────────────────────────────────────────────────
+# LLM providers
+# ─────────────────────────────────────────────────────────────────────
+groq>=0.9.0
 
-wikipedia>=1.4.0
-duckduckgo-search>=6.1.0
-ddgs>=8.0.0
-
+# ─────────────────────────────────────────────────────────────────────
+# Vector store + embeddings
+# ─────────────────────────────────────────────────────────────────────
 chromadb>=0.5.0
 sentence-transformers>=3.0.0
+rank-bm25>=0.2.2
 
-torch>=2.3.0
-torchvision>=0.18.0
-torchaudio>=2.3.0
+# ─────────────────────────────────────────────────────────────────────
+# Tools
+# ─────────────────────────────────────────────────────────────────────
+wikipedia>=1.4.0
+duckduckgo-search>=6.1.0
+youtube-transcript-api>=0.6.2
 
+# ─────────────────────────────────────────────────────────────────────
+# Observability — Langfuse v4
+# Pin to >=3.0.0 to ensure get_client() and langfuse.langchain are available
+# The old v2 API (from langfuse import Langfuse) was removed in v3+
+# ─────────────────────────────────────────────────────────────────────
+langfuse>=3.0.0
+
+# ─────────────────────────────────────────────────────────────────────
+# RAG Evaluation — RAGAS
+#
+# ragas>=0.2.0 supports:
+#   - LangchainLLMWrapper (for Groq integration)
+#   - LangchainEmbeddingsWrapper (for local embeddings)
+#   - Reference-free metrics: faithfulness, answer_relevancy, context_precision
+#   - Reference-required: context_recall (needs ground_truth)
+#
+# datasets is required by RAGAS for building evaluation datasets.
+# ─────────────────────────────────────────────────────────────────────
+ragas>=0.2.0
+datasets>=2.18.0
+
+# ─────────────────────────────────────────────────────────────────────
+# Validation
+# ─────────────────────────────────────────────────────────────────────
+pydantic>=2.0.0
+
+# ─────────────────────────────────────────────────────────────────────
+# Utilities
+# ─────────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0
 tenacity>=8.3.0
 streamlit>=1.35.0
+
+# ─────────────────────────────────────────────────────────────────────
+# PyTorch — CPU-only build for deployment (much smaller than CUDA build)
+# Remove --index-url line if you want GPU support
+# ─────────────────────────────────────────────────────────────────────
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.3.0
+torchvision>=0.18.0
+torchaudio>=2.3.0
