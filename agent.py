@@ -1,11 +1,12 @@
-# agent.py  (PRODUCTION UPGRADE — v2 with RAGAS evaluation)
+# agent.py  (PRODUCTION UPGRADE)
 # ─────────────────────────────────────────────────────────────────────
-# Changes vs v1:
-#   ✦ EvaluationService integrated — RAGAS scores logged after every response
-#   ✦ Context chunks passed through state for evaluation
-#   ✦ EvalDatasetCollector integration (optional, toggleable)
-#   ✦ trace_id returned in result dict so app.py can pass to UI
-#   ✦ All existing logic preserved — zero breaking changes
+# Changes vs original:
+#   ✦ Langfuse observability — every node is traced
+#   ✦ ChatPromptTemplate     — all prompts use structured templates
+#   ✦ ReAct tool calling     — reason before acting
+#   ✦ Pydantic output validation — highlights validated before return
+#   ✦ Guardrails integration — output sanitization
+#   ✦ LangGraph with callback handler for automatic LLM tracing
 # ─────────────────────────────────────────────────────────────────────
 
 import logging
@@ -18,10 +19,7 @@ import operator
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_groq import ChatGroq
 
-from config import (
-    GROQ_API_KEY, GROQ_MODEL_FAST, TEMP_PRECISE, LLM_PARAMS,
-    EVAL_ENABLED, EVAL_COLLECT_DATASET, EVAL_DATASET_PATH,
-)
+from config import GROQ_API_KEY, GROQ_MODEL_FAST, TEMP_PRECISE, LLM_PARAMS
 from mcp_tools import get_tools_for_agent, TOOL_NAMES
 from llm import call_llm, call_llm_for_json, get_llm
 from prompts import (
@@ -47,20 +45,17 @@ _parser = StrOutputParser()
 
 
 # ── LangGraph State ───────────────────────────────────────────────────
-# context_chunks is NEW — we need the raw chunk list (not the joined string)
-# to pass to RAGAS, which expects list[str] not a single concatenated string.
 
 class AgentState(TypedDict):
-    query:          str
-    context:        str           # joined context string for LLM prompt
-    context_chunks: list[str]     # NEW: raw chunks for RAGAS evaluation
-    num_chunks:     int
-    tool_results:   str
-    tool_calls:     Annotated[list, operator.add]
-    next_agent:     str
-    output:         dict
-    trace_id:       str
-    session_id:     str
+    query:        str
+    context:      str
+    num_chunks:   int
+    tool_results: str
+    tool_calls:   Annotated[list, operator.add]
+    next_agent:   str
+    output:       dict
+    trace_id:     str    # NEW: Langfuse trace ID passed through state
+    session_id:   str    # NEW: UI session ID for trace grouping
 
 
 # ── Groq with tools bound ─────────────────────────────────────────────
@@ -86,6 +81,7 @@ def supervisor_node(state: AgentState) -> AgentState:
     t0 = time.perf_counter()
 
     try:
+        # Use ChatPromptTemplate for structured routing
         llm = get_llm(mode="precise")
         chain = ROUTER_CHAT_TEMPLATE | llm | _parser
         decision = chain.invoke({"query": state["query"]}).strip().lower()
@@ -108,7 +104,14 @@ def supervisor_node(state: AgentState) -> AgentState:
 # ── Tool Calling Node (ReAct-enhanced) ───────────────────────────────
 
 def run_tool_calling(state: AgentState, agent_type: str) -> tuple[str, list]:
+    """
+    ReAct-enhanced tool calling.
+    The LLM reasons about WHETHER to call a tool before calling it,
+    reducing wasted API calls.
+    """
     tool_llm = _build_tool_llm(agent_type)
+
+    # Use ReAct prompt template for reasoning-first tool use
     react_messages = REACT_TOOL_CHAT_TEMPLATE.format_messages(
         query=state["query"],
         context_preview=state["context"][:500],
@@ -157,8 +160,10 @@ def run_tool_calling(state: AgentState, agent_type: str) -> tuple[str, list]:
 
 def summarize_agent_node(state: AgentState) -> AgentState:
     logger.info("[AGENT] summarize_agent running...")
+
     tool_results_text, tool_calls_log = run_tool_calling(state, "summarize_agent")
 
+    # Use ChatPromptTemplate chain (CoT + Few-Shot)
     try:
         llm = get_llm(mode="balanced")
         chain = SUMMARIZE_CHAT_TEMPLATE | llm | _parser
@@ -187,8 +192,10 @@ def summarize_agent_node(state: AgentState) -> AgentState:
 
 def highlight_agent_node(state: AgentState) -> AgentState:
     logger.info("[AGENT] highlight_agent running...")
+
     tool_results_text, tool_calls_log = run_tool_calling(state, "highlight_agent")
 
+    # Use ChatPromptTemplate chain (Few-Shot JSON)
     try:
         llm = get_llm(mode="precise")
         chain = HIGHLIGHT_CHAT_TEMPLATE | llm | _parser
@@ -197,6 +204,7 @@ def highlight_agent_node(state: AgentState) -> AgentState:
             "tool_results": tool_results_text,
             "task":         state["query"],
         })
+        # Parse and validate via HighlightOutput schema
         import json as _json
         clean = raw_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         raw_list = _json.loads(clean)
@@ -231,6 +239,7 @@ def highlight_agent_node(state: AgentState) -> AgentState:
 
 def social_agent_node(state: AgentState) -> AgentState:
     logger.info("[AGENT] social_agent running...")
+
     tool_results_text, tool_calls_log = run_tool_calling(state, "social_agent")
 
     try:
@@ -260,8 +269,13 @@ def social_agent_node(state: AgentState) -> AgentState:
 
 
 def qa_agent_node(state: AgentState) -> AgentState:
-    logger.info("[AGENT] qa_agent running...")
-    tool_results_text, tool_calls_log = run_tool_calling(state, "summarize_agent")
+    logger.info("[AGENT] qa_agent running (context-only, no tools)...")
+
+    # Q&A never calls external tools — transcript context is sufficient.
+    # Calling Wikipedia/DuckDuckGo here dilutes the answer with irrelevant
+    # external content → low Answer Relevancy in RAGAS.
+    tool_results_text = "No external tools used — answering directly from transcript context."
+    tool_calls_log    = []
 
     try:
         llm = get_llm(mode="balanced")
@@ -327,74 +341,6 @@ def _build_graph():
 _graph = _build_graph()
 
 
-# ── Evaluation helper ─────────────────────────────────────────────────
-
-def _run_evaluation_background(
-    trace_id: str,
-    query: str,
-    answer: str,
-    context_chunks: list[str],
-) -> None:
-    """
-    Fire-and-forget evaluation after the agent responds.
-    Runs in a daemon thread — never delays the user.
-
-    Why fire-and-forget?
-        RAGAS takes 3-8 seconds per query. The user should not wait
-        for eval before seeing their answer. Scores appear in Langfuse
-        a few seconds after the response is already rendered.
-    """
-    if not EVAL_ENABLED:
-        return
-
-    # Convert answer to string if it's a list (highlight agent returns list)
-    if isinstance(answer, list):
-        answer_str = " ".join(
-            item.get("highlight", "") if isinstance(item, dict) else str(item)
-            for item in answer
-        )
-    else:
-        answer_str = str(answer)
-
-    if not answer_str.strip() or not context_chunks:
-        logger.debug("[EVAL] Skipping eval — empty answer or no context chunks")
-        return
-
-    try:
-        from evaluation import get_eval_service
-        svc = get_eval_service()
-        svc.evaluate_fire_and_forget(
-            trace_id=trace_id,
-            query=query,
-            answer=answer_str,
-            contexts=context_chunks,
-        )
-    except Exception as e:
-        # Evaluation must NEVER break the main pipeline
-        logger.warning(f"[EVAL] Could not launch background evaluation: {e}")
-
-
-def _collect_dataset_sample(
-    query: str,
-    answer: str,
-    context_chunks: list[str],
-) -> None:
-    """
-    Optionally save this Q/A/context to a JSONL file for offline evaluation.
-    Controlled by EVAL_COLLECT_DATASET env var (default: false).
-    """
-    if not EVAL_COLLECT_DATASET:
-        return
-    try:
-        from evaluation import EvalDatasetCollector
-        collector = EvalDatasetCollector.load(EVAL_DATASET_PATH) if __import__("os").path.exists(EVAL_DATASET_PATH) else EvalDatasetCollector()
-        answer_str = answer if isinstance(answer, str) else str(answer)
-        collector.add(question=query, contexts=context_chunks, answer=answer_str)
-        collector.save(EVAL_DATASET_PATH)
-    except Exception as e:
-        logger.debug(f"[EVAL] Dataset collection failed (non-critical): {e}")
-
-
 # ── Public API ────────────────────────────────────────────────────────
 
 def run_agent(
@@ -402,47 +348,37 @@ def run_agent(
     context:        str,
     num_chunks:     int,
     session_id:     str | None = None,
-    context_chunks: list[str] | None = None,  # NEW: raw chunks for evaluation
+    context_chunks: list | None = None,   # raw chunk list for RAGAS evaluation
 ) -> dict:
     """
     Main entry point — runs the full agent pipeline with:
       - Langfuse observability (auto-traces all LLM calls)
       - Output guardrails (validation + sanitization)
-      - RAGAS evaluation (background, non-blocking)
       - Pydantic-validated results
-
-    Args:
-        query:          User query string.
-        context:        Joined context string for LLM prompt (from rag.py).
-        num_chunks:     Number of chunks retrieved (for logging).
-        session_id:     Langfuse session ID for trace grouping.
-        context_chunks: Raw list of retrieved chunks (for RAGAS evaluation).
-                        If None, we split context by separator as fallback.
     """
     tracer    = get_tracer()
     trace_id  = str(uuid.uuid4())
     sid       = session_id or "default"
 
-    # If caller didn't pass raw chunks, split the joined context string
-    # This ensures backward compatibility with existing callers
+    # If caller didn't pass raw chunks, split the joined context string as fallback
     chunks_for_eval = context_chunks or [
         c.strip() for c in context.split("\n\n---\n\n") if c.strip()
     ]
 
     initial_state: AgentState = {
-        "query":          query,
-        "context":        context,
-        "context_chunks": chunks_for_eval,
-        "num_chunks":     num_chunks,
-        "tool_results":   "",
-        "tool_calls":     [],
-        "next_agent":     "",
-        "output":         {},
-        "trace_id":       trace_id,
-        "session_id":     sid,
+        "query":        query,
+        "context":      context,
+        "num_chunks":   num_chunks,
+        "tool_results": "",
+        "tool_calls":   [],
+        "next_agent":   "",
+        "output":       {},
+        "trace_id":     trace_id,
+        "session_id":   sid,
     }
 
     with tracer.trace("mediamind_pipeline", query=query, session_id=sid) as trace:
+        # Get LangChain callback handler for automatic LLM tracing
         langfuse_handler = tracer.langchain_handler(
             trace_id=trace_id, session_id=sid
         )
@@ -450,6 +386,7 @@ def run_agent(
 
         if _graph is not None:
             try:
+                # Pass Langfuse callback so ALL LLM calls inside LangGraph are traced
                 config = {"callbacks": callbacks} if callbacks else {}
                 final_state = _graph.invoke(initial_state, config=config)
                 output_data = final_state.get("output", {})
@@ -459,13 +396,13 @@ def run_agent(
                     "tool_calls": final_state.get("tool_calls", []),
                     "output":     output_data.get("content", "No output generated."),
                     "num_chunks": num_chunks,
-                    "trace_id":   trace_id,   # returned so app.py can link feedback
+                    "trace_id":   trace_id,
                 }
 
                 # Run output guardrails
                 result = run_output_pipeline(result)
 
-                # Log routing decision to Langfuse trace
+                # Log routing decision to trace
                 tracer.log_routing_decision(
                     trace,
                     query=query,
@@ -473,22 +410,23 @@ def run_agent(
                     latency_ms=0,
                 )
 
-                # ── RAGAS Evaluation (fire-and-forget, non-blocking) ──
-                # This launches in a daemon thread and NEVER blocks the response.
-                # Scores appear in Langfuse ~5s after the response is rendered.
-                _run_evaluation_background(
-                    trace_id=trace_id,
-                    query=query,
-                    answer=result["output"],
-                    context_chunks=chunks_for_eval,
-                )
-
-                # ── Optional: collect this sample for offline evaluation ──
-                _collect_dataset_sample(
-                    query=query,
-                    answer=result["output"],
-                    context_chunks=chunks_for_eval,
-                )
+                # ── RAGAS evaluation (fire-and-forget, never blocks user) ──
+                try:
+                    from evaluation import get_eval_service
+                    answer = result["output"]
+                    if isinstance(answer, list):
+                        answer = " ".join(
+                            item.get("highlight", "") if isinstance(item, dict) else str(item)
+                            for item in answer
+                        )
+                    get_eval_service().evaluate_fire_and_forget(
+                        trace_id=trace_id,
+                        query=query,
+                        answer=str(answer),
+                        contexts=chunks_for_eval,
+                    )
+                except Exception as e:
+                    logger.warning(f"[EVAL] Could not launch evaluation: {e}")
 
                 return result
 
@@ -513,16 +451,5 @@ def run_agent(
             "tool_calls": final_state.get("tool_calls", []),
             "output":     output_data.get("content", "No output generated."),
             "num_chunks": num_chunks,
-            "trace_id":   trace_id,
         }
-        result = run_output_pipeline(result)
-
-        # Evaluation on fallback path too
-        _run_evaluation_background(
-            trace_id=trace_id,
-            query=query,
-            answer=result["output"],
-            context_chunks=chunks_for_eval,
-        )
-
-        return result
+        return run_output_pipeline(result)

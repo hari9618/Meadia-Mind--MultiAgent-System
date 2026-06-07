@@ -382,11 +382,17 @@ Write content for each platform:
 # ToT: model considers multiple answer paths before picking the best
 # ══════════════════════════════════════════════════════════════════════
 
-QA_SYSTEM = """You are a knowledgeable media content expert.
-Answer questions directly and concisely based on transcript content.
-Before answering, briefly consider 2-3 possible interpretations of the question,
-then pick the most relevant one and answer it clearly.
-Do NOT produce summaries or structured reports — just answer the question naturally."""
+QA_SYSTEM = """You are a knowledgeable media content expert answering questions about podcast and video transcripts.
+
+Your ONLY job is to directly answer the exact question asked — nothing more.
+
+Rules:
+- Answer in 2 to 4 sentences maximum
+- Use ONLY what is in the transcript context provided
+- Do NOT add background, summaries, or related information not asked for
+- Do NOT produce bullet points, lists, or structured reports
+- If the transcript does not contain the answer, say "The transcript doesn't cover this" in one sentence
+- Sound like a human expert giving a quick, direct answer"""
 
 _QA_EXAMPLES = [
     {
@@ -410,47 +416,25 @@ _qa_few_shot = FewShotChatMessagePromptTemplate(
 QA_CHAT_TEMPLATE = ChatPromptTemplate.from_messages([
     ("system", QA_SYSTEM),
     _qa_few_shot,
-    ("human", """Answer the user's question based on the transcript content below.
-
-TRANSCRIPT CONTEXT:
+    ("human", """TRANSCRIPT CONTEXT:
 {context}
-
-LIVE RESEARCH DATA:
-{tool_results}
 
 QUESTION: {task}
 
-Internal reasoning (do this silently before answering):
-Path A: What is the most literal interpretation of this question?
-Path B: What is the user most likely trying to understand?
-Path C: Is there a nuance they might be missing?
-→ Pick the most helpful path and answer clearly in 2-5 sentences.
-
-Instructions:
-- Answer directly and concisely — 2 to 5 sentences max
-- Ground your answer in the transcript content
-- If the transcript doesn't cover it, say so honestly
-- Do NOT produce bullet points, overviews, or summaries
-- Sound like a human expert, not a report generator"""),
+Answer the question above in 2-4 sentences using only the transcript context.
+Be direct. Answer exactly what was asked — nothing more."""),
 ])
 
-QA_PROMPT = """Answer the user's question based on the transcript content below.
+QA_PROMPT = """Answer the question below using only the transcript context provided.
 
 TRANSCRIPT CONTEXT:
 {context}
 
-LIVE RESEARCH DATA:
-{tool_results}
-
 QUESTION: {task}
 
-Instructions:
-- Consider multiple interpretations of the question, then answer the most relevant one
-- Answer directly and concisely — 2 to 5 sentences max
-- Ground your answer in the transcript content
-- If the transcript doesn't cover it, say so honestly
-- Do NOT produce bullet points, overviews, or summaries
-- Sound like a human expert, not a report generator
+Answer in 2-4 sentences. Be direct. Answer exactly what was asked — nothing more.
+If the transcript doesn't cover it, say so in one sentence.
+Do NOT produce bullet points, summaries, or structured reports.
 """
 
 

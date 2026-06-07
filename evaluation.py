@@ -2,23 +2,6 @@
 # ─────────────────────────────────────────────────────────────────────
 # Production-safe RAG Evaluation — RAGAS 0.4.x compatible
 #
-# BUGS FIXED IN THIS VERSION:
-#
-#   BUG 1 (previous session):
-#     context_precision  →  requires 'reference' column
-#     Fix: use LLMContextPrecisionWithoutReference
-#
-#   BUG 2 (this session):
-#     result.keys()  →  AttributeError: 'EvaluationResult' object has no 'keys'
-#     Root cause: RAGAS 0.4.3 returns EvaluationResult dataclass, NOT a dict
-#     Fix: use result._repr_dict  (Dict[str, float] — averaged scores per metric)
-#
-#   BUG 3 (hidden, now fixed):
-#     @retry(reraise=False) was swallowing the exception before fallback
-#     extraction layers ran, always returning None silently
-#     Fix: removed retry from _run_ragas_sync, wrap the whole call in
-#     a simple try/except at the EvaluationService.evaluate() level
-#
 # RAGAS 0.4.3 API facts (verified from source):
 #   Input columns : user_input, response, retrieved_contexts  (NOT question/answer/contexts)
 #   LLM wiring    : pass llm= and embeddings= to evaluate() directly, NOT per-metric

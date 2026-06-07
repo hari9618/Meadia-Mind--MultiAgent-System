@@ -2,32 +2,26 @@
 # ─────────────────────────────────────────────────────────────────────
 # RAG (Retrieval-Augmented Generation) pipeline.
 #
-# Changes vs v1:
-#   ✦ retrieve_context_with_chunks() — new function returns BOTH the
-#     joined string (for LLM prompt) AND the raw list (for RAGAS eval)
-#   ✦ retrieve_context() preserved unchanged — no breaking changes
-#   ✦ Retrieval latency logging added for Langfuse spans
+# IMPROVEMENTS in this version (for better RAGAS scores):
+#   ✦ _is_specific_question()       — detects direct Q&A vs broad tasks
+#   ✦ Query-aware TOP_K             — specific questions use TOP_K=2
+#                                     broad tasks use TOP_K=4
+#                                     → directly improves Context Precision
+#   ✦ _hybrid_retrieve_chunks()     — shared internal logic (DRY)
+#   ✦ retrieve_context_with_chunks()— returns (str, List[str]) for RAGAS
+#   ✦ retrieve_context()            — preserved for backward compatibility
+#   ✦ Retrieval latency logging     — for Langfuse spans
 #
-# What RAG does:
-#   1. Takes a long transcript and splits it into small chunks
-#   2. Stores those chunks in a vector database (ChromaDB)
-#   3. When a query comes in, finds the most relevant chunks
-#   4. Returns those chunks as "context" for the LLM to use
+# WHY QUERY-AWARE TOP_K IMPROVES CONTEXT PRECISION:
+#   Before: "What was the error rate?" → 4 chunks → 1 relevant, 3 noise
+#           RAGAS precision = 1/4 = 0.25
+#   After:  "What was the error rate?" → 2 chunks → 1 relevant, 1 noise
+#           RAGAS precision = 1/2 = 0.50+
 #
-# Why HYBRID search:
-#   BM25 catches exact keyword matches.
-#   ChromaDB catches semantic/meaning matches.
-#   Together they're significantly more accurate than either alone.
-#
-# Production note on reranking:
-#   For even better retrieval quality, add a cross-encoder reranker
-#   between the merge step and the final TOP_K slice.
-#   See the recommendation section in evaluation.py.
-#   Example: pip install sentence-transformers
-#   Then: from sentence_transformers import CrossEncoder
-#         reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-#         scores = reranker.predict([(query, chunk) for chunk in merged])
-#         final_chunks = [merged[i] for i in argsort(scores)[-TOP_K:]]
+# WHY HYBRID SEARCH:
+#   BM25 catches exact keyword matches ("error rate", "34%")
+#   ChromaDB catches semantic/meaning matches ("how much did it drop")
+#   Together significantly more accurate than either alone.
 # ─────────────────────────────────────────────────────────────────────
 
 import logging
@@ -64,9 +58,9 @@ _splitter = RecursiveCharacterTextSplitter(
     separators=["\n\n", "\n", ". ", " "],
 )
 
-# ── Module-level storage for BM25 ─────────────────────────────────────
-_bm25_index: BM25Okapi | None = None
-_bm25_chunks: List[str] = []
+# ── Module-level BM25 storage ─────────────────────────────────────────
+_bm25_index:  BM25Okapi | None = None
+_bm25_chunks: List[str]        = []
 
 
 def _get_or_create_collection() -> chromadb.Collection:
@@ -120,32 +114,75 @@ def _build_bm25(chunks: List[str]) -> BM25Okapi:
 
 def _bm25_retrieve(query: str, top_k: int) -> List[str]:
     if _bm25_index is None or not _bm25_chunks:
-        logger.warning("[RAG] BM25 index not built yet. Returning empty list.")
+        logger.warning("[RAG] BM25 index not built yet.")
         return []
-
     query_tokens = query.lower().split()
     scores       = _bm25_index.get_scores(query_tokens)
     top_indices  = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
     return [_bm25_chunks[i] for i in top_indices]
 
 
+# ── Query-aware retrieval depth ───────────────────────────────────────
+
+def _is_specific_question(query: str) -> bool:
+    """
+    Detect if the query is a specific direct question vs a broad task.
+
+    WHY THIS IMPROVES CONTEXT PRECISION:
+      Specific questions need 2 tight chunks — not 4 broad ones.
+      Retrieving 4 chunks for "what was the error rate?" pulls 3 irrelevant
+      chunks about unrelated parts of the transcript → precision tanks.
+
+    Examples:
+      "What was the error rate?"        → specific → TOP_K=2
+      "Who is Dr. Sarah Chen?"          → specific → TOP_K=2
+      "Summarize the entire episode"    → broad    → TOP_K=4
+      "What are the key highlights?"    → broad    → TOP_K=4
+    """
+    question_starters = [
+        "what", "who", "when", "where", "why", "how", "which",
+        "did", "does", "is", "are", "was", "were", "define", "explain",
+        "tell me", "can you tell",
+    ]
+    lower = query.lower().strip()
+    has_question_word = any(
+        lower.startswith(w) or f" {w} " in lower
+        for w in question_starters
+    )
+    is_short = len(query.split()) < 15
+    return has_question_word and is_short
+
+
 def _hybrid_retrieve_chunks(query: str) -> List[str]:
     """
-    Internal: perform hybrid retrieval and return deduplicated list of chunks.
-    Extracted so both retrieve_context() and retrieve_context_with_chunks()
-    call the same logic — DRY principle.
+    Shared internal retrieval logic used by both public functions.
+    Performs hybrid BM25 + vector search with query-aware TOP_K.
+
+    Returns deduplicated list of chunks, vector results prioritised.
     """
-    t0 = time.perf_counter()
+    t0         = time.perf_counter()
     collection = _get_or_create_collection()
 
-    # Vector search (semantic similarity)
-    vector_results = collection.query(query_texts=[query], n_results=TOP_K)
-    vector_chunks  = vector_results["documents"][0] if vector_results["documents"] else []
+    # Query-aware retrieval depth:
+    #   Specific Q&A → TOP_K=2  (tight, precise)
+    #   Broad tasks  → TOP_K=4  (wide coverage)
+    effective_top_k = 2 if _is_specific_question(query) else TOP_K
+    query_type      = "specific" if effective_top_k == 2 else "broad"
+    logger.info(f"[RAG] Query type={query_type} → effective_top_k={effective_top_k}")
 
-    # BM25 search (keyword matching)
-    bm25_chunks = _bm25_retrieve(query, top_k=TOP_K)
+    # ── Vector search (semantic similarity) ──────────────────────────
+    vector_results = collection.query(
+        query_texts=[query], n_results=effective_top_k
+    )
+    vector_chunks = (
+        vector_results["documents"][0]
+        if vector_results["documents"] else []
+    )
 
-    # Merge and deduplicate — vector chunks have priority
+    # ── BM25 search (keyword matching) ───────────────────────────────
+    bm25_chunks = _bm25_retrieve(query, top_k=effective_top_k)
+
+    # ── Merge + deduplicate (vector chunks have priority) ─────────────
     seen   = {}
     merged = []
 
@@ -161,61 +198,47 @@ def _hybrid_retrieve_chunks(query: str) -> List[str]:
             seen[key] = True
             merged.append(chunk)
 
-    final_chunks = merged[:TOP_K]
+    final_chunks = merged[:effective_top_k]
     latency_ms   = (time.perf_counter() - t0) * 1000
 
     if not final_chunks:
-        logger.warning("[RAG] No chunks retrieved. Returning empty list.")
+        logger.warning("[RAG] No chunks retrieved.")
         return []
 
     logger.info(
-        f"[RAG] Retrieved {len(final_chunks)} chunks (hybrid: vector + BM25) "
-        f"in {latency_ms:.0f}ms"
+        f"[RAG] Retrieved {len(final_chunks)} chunks "
+        f"(hybrid: vector + BM25) in {latency_ms:.0f}ms"
     )
     return final_chunks
 
+
+# ── Public API ────────────────────────────────────────────────────────
 
 def retrieve_context(query: str) -> str:
     """
     Original API — preserved for backward compatibility.
     Returns the joined context string only.
-
-    Use retrieve_context_with_chunks() when you also need the raw chunk
-    list for RAGAS evaluation.
     """
     final_chunks = _hybrid_retrieve_chunks(query)
-
     if not final_chunks:
         return "No relevant context found."
-
     return "\n\n---\n\n".join(final_chunks)
 
 
 def retrieve_context_with_chunks(query: str) -> Tuple[str, List[str]]:
     """
-    NEW: Returns both the joined context string AND the raw chunk list.
+    Returns BOTH the joined context string AND the raw chunk list.
 
-    Why two return values?
-        - LLM prompts need a single concatenated string (context)
-        - RAGAS evaluation needs list[str] (one string per chunk)
-        Returning both from one retrieval call avoids doing it twice.
+    WHY TWO RETURN VALUES:
+      - LLM prompt needs a single concatenated string  → context_str
+      - RAGAS evaluation needs List[str]               → context_chunks
+      One retrieval call, two uses — no double-fetching.
 
-    Usage in app.py / agent.py:
+    Usage:
         context, chunks = retrieve_context_with_chunks(query)
         result = run_agent(query, context, num_chunks, context_chunks=chunks)
-
-    Args:
-        query: The user's question or task description.
-
-    Returns:
-        Tuple of:
-            - context_str:    Top chunks joined by separator (for LLM prompt)
-            - context_chunks: Raw list of chunk strings (for RAGAS)
     """
     final_chunks = _hybrid_retrieve_chunks(query)
-
     if not final_chunks:
         return "No relevant context found.", []
-
-    context_str = "\n\n---\n\n".join(final_chunks)
-    return context_str, final_chunks
+    return "\n\n---\n\n".join(final_chunks), final_chunks

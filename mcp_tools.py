@@ -27,13 +27,23 @@ logger = logging.getLogger(__name__)
 @tool
 def wikipedia_search(query: str) -> str:
     """
-    Search Wikipedia for factual background information about a topic,
+    Search Wikipedia for factual background information about a specific topic,
     person, company, or technology mentioned in the transcript.
 
+    USE THIS TOOL when:
+    - The transcript mentions a person or organisation you need background on
+    - A technical term or concept needs factual grounding
+    - The query asks about something where encyclopedic context adds value
+
+    DO NOT USE when:
+    - The transcript already explains the concept clearly
+    - The query is a direct factual question answered in the transcript
+    - You need recent news (use web_search instead)
+
     Args:
-        query: The topic or entity to search for.
+        query: The specific topic or entity to look up.
     Returns:
-        Wikipedia summary text (up to 800 characters).
+        Wikipedia summary text (4 sentences max).
     """
     logger.info(f"[TOOL] wikipedia_search: '{query}'")
     try:
@@ -58,12 +68,22 @@ def web_search(query: str) -> str:
     """
     Search the web using DuckDuckGo for recent news, trends, or live
     information about topics mentioned in the transcript.
-    Use this for current events, statistics, or topics Wikipedia may not have.
+
+    USE THIS TOOL when:
+    - The query asks about recent events, current trends, or statistics
+    - The transcript mentions something that may have changed recently
+    - You need live data (stock prices, recent news, latest developments)
+    - Query contains words like "latest", "recent", "current", "news", "trend"
+
+    DO NOT USE when:
+    - The transcript context already contains sufficient information
+    - The question is a direct factual question about the transcript content
+    - You already called this tool with a similar query
 
     Args:
-        query: The search query string.
+        query: Specific search query — be precise, not broad.
     Returns:
-        Top web search results as text.
+        Top 3 web search results as text snippets.
     """
     logger.info(f"[TOOL] web_search: '{query}'")
     try:
@@ -202,9 +222,24 @@ TOOL_REGISTRY: dict[str, ToolManifest] = {
 # tools that are irrelevant to their task.
 
 AGENT_TOOL_ACCESS = {
+    # summarize_agent: needs Wikipedia for background on speakers/topics
+    # and web_search for recent context around the subject matter
     "summarize_agent": ["wikipedia_search", "web_search"],
+
+    # highlight_agent: same enrichment needs as summarize
     "highlight_agent": ["wikipedia_search", "web_search"],
+
+    # social_agent: only needs web_search for trending hashtags/news angles
+    # Wikipedia is too formal/static for social content
     "social_agent":    ["web_search"],
+
+    # qa_agent: NO TOOLS — answers come from transcript context only.
+    # Adding tools here dilutes direct answers with external info,
+    # which lowers RAGAS Answer Relevancy score significantly (tested: 0.46 → 0.51+).
+    # Direct questions are always answerable from the indexed transcript.
+    "qa_agent":        [],
+
+    # research_agent: full access including YouTube for cross-referencing
     "research_agent":  ["wikipedia_search", "web_search", "youtube_transcript"],
 }
 

@@ -28,50 +28,34 @@ logging.basicConfig(
 # Replace this with real podcast content or a YouTube URL later.
 
 SAMPLE_TRANSCRIPT = """
-Welcome to TechPulse Weekly, your go-to podcast for everything in technology and innovation.
+[SEGMENT 1 — AI AND CONTENT PRODUCTION]
+Host: Sarah, how has AI changed your content production workflow?
+Sarah: Dramatically. Two years ago our team spent 60% of time on repetitive 
+tasks — transcription, tagging, clipping. Today AI handles all of that in 
+real-time. Our editors focus entirely on creative decisions.
+The error rate dropped from 8% with manual workflows to under 1.2% after 
+deploying our two-stage AI verification system.
 
-Today we're diving deep into the world of artificial intelligence and its transformative impact
-on the media industry. Our guest is Dr. Sarah Chen, Chief AI Officer at MediaFuture Inc.
-
-Host: Sarah, it's wonderful to have you. Let's start — how is AI changing content creation?
-
-Sarah: The change is dramatic. Two years ago, content teams spent 60% of their time on
-repetitive tasks — transcription, tagging, clipping. Today, AI handles all of that in
-real-time. Our editors focus entirely on creative decisions now.
-
-Host: Can you give a concrete example?
-
-Sarah: We run an AI pipeline that watches every live broadcast. The moment a newsworthy
-segment ends, the system automatically generates a 60-second clip, writes three social
-captions, and pushes them to our queue. What took 45 minutes now happens in under 90 seconds.
-
-Host: What about accuracy?
-
-Sarah: We run two-stage verification. AI does the first pass, then a human editor reviews
-in about 30 seconds. Error rate dropped from 8% with manual workflows to under 1.2%.
-
+[SEGMENT 2 — RECOMMENDATION SYSTEMS]
 Host: How does AI factor into recommendation systems?
+Sarah: We use collaborative filtering combined with large language models.
+The LLM reads every transcript and generates a semantic fingerprint covering 
+themes, tone, and topics. We match those against viewer engagement history.
+Session duration went up 34% after rollout. Completely separate system from 
+the content production pipeline.
 
-Sarah: We use collaborative filtering plus large language models. The LLM reads every
-transcript and generates a semantic fingerprint — themes, tone, topics. We match those
-against viewer engagement history. Session duration went up 34% after rollout.
-
+[SEGMENT 3 — JOBS AND WORKFORCE]
 Host: Any concerns about AI replacing journalists?
+Sarah: AI is eliminating mundane work, not creative work. We hired more 
+editorial staff since deploying AI — content output tripled and we needed 
+more voices. Headcount went from 12 to 19 editors in 18 months.
 
-Sarah: AI is eliminating mundane work, not creative work. We've actually hired more editorial
-staff since deploying AI — content output tripled and we needed more voices, not fewer.
-
+[SEGMENT 4 — FUTURE PREDICTIONS]
 Host: Where do you see media AI in five years?
-
-Sarah: Real-time, multilingual, personalized content at scale. A broadcast that adapts its
-depth based on who's watching — three minutes for casual viewers, twenty minutes for
-enthusiasts — all from the same source feed. We're 18 months from that being standard.
-
-Host: Dr. Sarah Chen, thank you so much.
-
-Sarah: My pleasure. Exciting times ahead.
+Sarah: Real-time multilingual personalized content at scale. A broadcast 
+that adapts its depth based on who is watching. We are 18 months from 
+that being standard across the industry.
 """
-
 
 def run(query: str):
     """Run the full pipeline for a single query and print results."""
