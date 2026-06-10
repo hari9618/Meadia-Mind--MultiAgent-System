@@ -15,6 +15,7 @@
 #   4. read_file           — read a local transcript/text file
 # ─────────────────────────────────────────────────────────────────────
 
+import os
 import logging
 from dataclasses import dataclass
 from langchain_core.tools import tool, BaseTool
@@ -48,12 +49,9 @@ def wikipedia_search(query: str) -> str:
     logger.info(f"[TOOL] wikipedia_search: '{query}'")
     try:
         import wikipedia
-        # search() returns a list of matching page titles
         results = wikipedia.search(query, results=2)
         if not results:
             return "No Wikipedia results found."
-
-        # Get the summary of the first matching page
         summary = wikipedia.summary(results[0], sentences=4)
         return summary
     except Exception as e:
@@ -88,15 +86,12 @@ def web_search(query: str) -> str:
     logger.info(f"[TOOL] web_search: '{query}'")
     try:
         from duckduckgo_search import DDGS
-
-        # DDGS is the new DuckDuckGo search API class
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=3))
 
         if not results:
             return "No web search results found."
 
-        # Format results as readable text
         formatted = []
         for r in results:
             title = r.get("title", "")
@@ -126,6 +121,7 @@ def youtube_transcript(video_url_or_id: str) -> str:
     logger.info(f"[TOOL] youtube_transcript: '{video_url_or_id}'")
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
+        from youtube_transcript_api.proxies import WebshareProxyConfig
 
         # Extract the video ID from a URL if a full URL was passed
         if "youtube.com" in video_url_or_id or "youtu.be" in video_url_or_id:
@@ -136,16 +132,26 @@ def youtube_transcript(video_url_or_id: str) -> str:
             else:
                 return "Could not parse YouTube video ID from URL."
         else:
-            # Assume it's already a bare video ID
             video_id = video_url_or_id.strip()
 
-        # v1.x API: instantiate the class then call .fetch(video_id).
-        # The old class-method .get_transcript() was removed in v1.0.
-        api = YouTubeTranscriptApi()
+        # Webshare proxy to bypass YouTube's cloud IP block
+        proxy_user = os.getenv("WEBSHARE_USERNAME")
+        proxy_pass = os.getenv("WEBSHARE_PASSWORD")
+
+        if proxy_user and proxy_pass:
+            api = YouTubeTranscriptApi(
+                proxy_config=WebshareProxyConfig(
+                    proxy_username=proxy_user,
+                    proxy_password=proxy_pass,
+                )
+            )
+        else:
+            # Fallback: no proxy (works locally, may fail on cloud)
+            logger.warning("[TOOL] WEBSHARE_USERNAME/PASSWORD not set — running without proxy")
+            api = YouTubeTranscriptApi()
+
         fetched = api.fetch(video_id)
         full_text = " ".join([snippet.text for snippet in fetched])
-
-        # Cap at 3000 chars to stay within LLM context limits
         return full_text[:3000]
 
     except Exception as e:
@@ -171,7 +177,6 @@ def read_file(filepath: str) -> str:
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
-        # Cap at 3000 chars to stay within LLM context window limits
         return content[:3000]
     except FileNotFoundError:
         return f"File not found: {filepath}"
@@ -180,19 +185,15 @@ def read_file(filepath: str) -> str:
 
 
 # ── Tool Registry ─────────────────────────────────────────────────────
-# Central registry of all available tools.
-# This is the "MCP-style" part — tools are registered here,
-# and agents query the registry for the tools they're allowed to use.
 
 @dataclass
 class ToolManifest:
     """Metadata about a tool — name, category, and the tool object itself."""
     name:     str
-    category: str      # "retrieval" | "web" | "file" | "output"
+    category: str
     tool:     BaseTool
 
 
-# All tools registered in one place
 TOOL_REGISTRY: dict[str, ToolManifest] = {
     "wikipedia_search": ToolManifest(
         name="wikipedia_search",
@@ -217,29 +218,12 @@ TOOL_REGISTRY: dict[str, ToolManifest] = {
 }
 
 # ── Per-agent tool access control ─────────────────────────────────────
-# Each agent type only gets the tools it needs.
-# This is good security practice and prevents agents from calling
-# tools that are irrelevant to their task.
 
 AGENT_TOOL_ACCESS = {
-    # summarize_agent: needs Wikipedia for background on speakers/topics
-    # and web_search for recent context around the subject matter
     "summarize_agent": ["wikipedia_search", "web_search"],
-
-    # highlight_agent: same enrichment needs as summarize
     "highlight_agent": ["wikipedia_search", "web_search"],
-
-    # social_agent: only needs web_search for trending hashtags/news angles
-    # Wikipedia is too formal/static for social content
     "social_agent":    ["web_search"],
-
-    # qa_agent: NO TOOLS — answers come from transcript context only.
-    # Adding tools here dilutes direct answers with external info,
-    # which lowers RAGAS Answer Relevancy score significantly (tested: 0.46 → 0.51+).
-    # Direct questions are always answerable from the indexed transcript.
     "qa_agent":        [],
-
-    # research_agent: full access including YouTube for cross-referencing
     "research_agent":  ["wikipedia_search", "web_search", "youtube_transcript"],
 }
 
@@ -261,6 +245,5 @@ def get_tools_for_agent(agent_type: str) -> list[BaseTool]:
     return tools
 
 
-# Convenience: flat list of all tools (used for direct tool lookup by name)
 ALL_TOOLS  = [m.tool for m in TOOL_REGISTRY.values()]
 TOOL_NAMES = {t.name: t for t in ALL_TOOLS}
